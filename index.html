@@ -45,6 +45,12 @@
             
             <!-- TAB 0: EXPLORE -->
             <section id="tab-explore" class="w-1/2 h-full flex flex-col tab-content no-scrollbar pb-6 relative">
+                <!-- Sort Bar -->
+                <div class="sticky top-0 z-10 bg-gray-100 border-b border-gray-200 px-4 py-2 flex items-center space-x-2 shrink-0">
+                    <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mr-1">Sort:</span>
+                    <button id="sort-new" class="sort-btn px-3 py-1.5 rounded-full text-sm font-bold bg-black text-white transition-all">✦ New</button>
+                    <button id="sort-liked" class="sort-btn px-3 py-1.5 rounded-full text-sm font-bold bg-white text-gray-600 border border-gray-300 transition-all">♥ Most Liked</button>
+                </div>
                 <div id="feed-container" class="p-4 space-y-6 max-w-lg mx-auto w-full">
                     <!-- Feed items injected here -->
                 </div>
@@ -155,7 +161,8 @@
             let currentTab = 0; // 0 = Explore, 1 = Upload
             let stream = null;
             let capturedImageDataUrl = null;
-            let feedData = []; // Array of { id, image, caption, timestamp }
+            let feedData = []; // Array of { id, image, caption, timestamp, likes, likedByMe }
+            let sortMode = 'new'; // 'new' | 'liked'
 
             // --- DOM Elements ---
             const tabTrack = document.getElementById('tab-track');
@@ -433,7 +440,9 @@
                     id: Date.now(),
                     image: capturedImageDataUrl,
                     caption: caption,
-                    timestamp: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })
+                    timestamp: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' }),
+                    likes: 0,
+                    likedByMe: false
                 };
 
                 feedData.unshift(newSnap); // Add to top
@@ -448,6 +457,20 @@
             });
 
 
+            // --- Sort Controls ---
+            document.getElementById('sort-new').addEventListener('click', () => {
+                sortMode = 'new';
+                document.getElementById('sort-new').className = 'sort-btn px-3 py-1.5 rounded-full text-sm font-bold bg-black text-white transition-all';
+                document.getElementById('sort-liked').className = 'sort-btn px-3 py-1.5 rounded-full text-sm font-bold bg-white text-gray-600 border border-gray-300 transition-all';
+                renderFeed();
+            });
+            document.getElementById('sort-liked').addEventListener('click', () => {
+                sortMode = 'liked';
+                document.getElementById('sort-liked').className = 'sort-btn px-3 py-1.5 rounded-full text-sm font-bold bg-black text-white transition-all';
+                document.getElementById('sort-new').className = 'sort-btn px-3 py-1.5 rounded-full text-sm font-bold bg-white text-gray-600 border border-gray-300 transition-all';
+                renderFeed();
+            });
+
             // --- Feed Rendering ---
             function renderFeed() {
                 feedContainer.innerHTML = '';
@@ -459,10 +482,22 @@
                 
                 emptyState.classList.add('hidden');
 
-                feedData.forEach(item => {
+                // Sort a copy of feedData
+                let sorted = [...feedData];
+                if (sortMode === 'liked') {
+                    sorted.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+                }
+                // 'new' keeps insertion order (newest first via unshift)
+
+                sorted.forEach(item => {
                     const card = document.createElement('article');
                     card.className = "bg-white rounded-xl shadow-md overflow-hidden border border-gray-200";
+                    card.dataset.id = item.id;
                     
+                    const heartFill = item.likedByMe ? '#e53e3e' : 'none';
+                    const heartStroke = item.likedByMe ? '#e53e3e' : 'currentColor';
+                    const likeTextColor = item.likedByMe ? 'text-red-500' : 'text-gray-500';
+
                     card.innerHTML = `
                         <div class="p-3 flex items-center space-x-3 border-b border-gray-100">
                             <div class="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-bold text-xs">A</div>
@@ -477,8 +512,43 @@
                         <div class="p-4">
                             <p class="text-gray-900 font-medium whitespace-pre-wrap">${escapeHTML(item.caption)}</p>
                         </div>
+                        <div class="px-4 pb-4 flex items-center">
+                            <button class="like-btn flex items-center space-x-1.5 ${likeTextColor} active:scale-90 transition-transform select-none" data-id="${item.id}">
+                                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="${heartFill}" stroke="${heartStroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                                </svg>
+                                <span class="text-sm font-bold">${item.likes || 0}</span>
+                            </button>
+                        </div>
                     `;
                     feedContainer.appendChild(card);
+                });
+
+                // Attach like button listeners
+                feedContainer.querySelectorAll('.like-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const id = parseInt(btn.dataset.id);
+                        const snap = feedData.find(f => f.id === id);
+                        if (!snap) return;
+
+                        snap.likedByMe = !snap.likedByMe;
+                        snap.likes = (snap.likes || 0) + (snap.likedByMe ? 1 : -1);
+                        if (snap.likes < 0) snap.likes = 0;
+
+                        // Update just this button without full re-render
+                        const heartFill = snap.likedByMe ? '#e53e3e' : 'none';
+                        const heartStroke = snap.likedByMe ? '#e53e3e' : 'currentColor';
+                        btn.className = `like-btn flex items-center space-x-1.5 ${snap.likedByMe ? 'text-red-500' : 'text-gray-500'} active:scale-90 transition-transform select-none`;
+                        btn.querySelector('svg').setAttribute('fill', heartFill);
+                        btn.querySelector('svg').setAttribute('stroke', heartStroke);
+                        btn.querySelector('span').textContent = snap.likes;
+
+                        // Animate
+                        btn.querySelector('svg').animate(
+                            [{ transform: 'scale(1)' }, { transform: 'scale(1.35)' }, { transform: 'scale(1)' }],
+                            { duration: 250, easing: 'ease-out' }
+                        );
+                    });
                 });
             }
 
@@ -587,14 +657,18 @@
                     id: 1,
                     image: createMockCardImg("Why can't I sleep at night?", "The inevitable heat death of the universe."),
                     caption: "Late night thoughts...",
-                    timestamp: "Oct 24, 08:30 PM"
+                    timestamp: "Oct 24, 08:30 PM",
+                    likes: 14,
+                    likedByMe: false
                 });
                 
                 feedData.push({
                     id: 2,
                     image: createMockCardImg("What's my secret power?", "Bees?"),
                     caption: "Oh no not the bees",
-                    timestamp: "Oct 24, 07:15 PM"
+                    timestamp: "Oct 24, 07:15 PM",
+                    likes: 7,
+                    likedByMe: false
                 });
             }
 
